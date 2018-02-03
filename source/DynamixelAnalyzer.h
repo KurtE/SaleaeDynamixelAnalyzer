@@ -29,6 +29,7 @@ public:
 	  REG_WRITE,
 	  ACTION,
 	  RESET,
+	  STATUS=0x55,					// Protocol 2 status message
 	  SYNC_WRITE=0x83,
       SYNC_WRITE_SERVO_DATA=0xff		// Special case for where we break up sync write into multiple frames. 
 	};
@@ -41,7 +42,15 @@ public:
 	  DE_LENGTH,
 	  DE_INSTRUCTION,
 	  DE_DATA,
-	  DE_CHECKSUM
+	  DE_CHECKSUM,
+	  // Added to try to decode Protocol 2 packets
+	  DE_P2_ID,
+	  DE_P2_LENGTH1,
+	  DE_P2_LENGTH2,
+	  DE_P2_INSTRUCTION,
+	  DE_P2_DATA,
+	  DE_P2_CHECKSUM,
+	  DE_P2_CHECKSUM2
 	};
 
 	enum SERVO_TYPE
@@ -53,6 +62,7 @@ public:
 
 protected: //functions
 	void ComputeSampleOffsets();
+	U16 update_crc(U16 crc_accum, U8 data_byte);
 
 
 protected: //vars
@@ -77,6 +87,8 @@ protected: //vars
     U8 mInstruction;
     U8 mData[ 256 ];
     U8 mChecksum;
+	U8 mCRCFirstByte;
+	U16 mCRC;
 };
 
 extern "C" ANALYZER_EXPORT const char* __cdecl GetAnalyzerName();

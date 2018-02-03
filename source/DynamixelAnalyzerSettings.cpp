@@ -6,6 +6,7 @@ DynamixelAnalyzerSettings::DynamixelAnalyzerSettings()
 :	mInputChannel( UNDEFINED_CHANNEL ),
 	mBitRate( 1000000 ),
 	mServoType (SERVO_TYPE_AX),
+	mServoType_p2 (SERVO_TYPE_X),
 	mShowWords ( true ), 
 	mServoControllerID (CONTROLLER_UNKNOWN)
 {
@@ -20,12 +21,18 @@ DynamixelAnalyzerSettings::DynamixelAnalyzerSettings()
 	mBitRateInterface->SetInteger( mBitRate );
 
 	mServoTypeInterface.reset(new AnalyzerSettingInterfaceNumberList());
-	mServoTypeInterface->SetTitleAndTooltip("Servo Type", "Type of Servos.");
+	mServoTypeInterface->SetTitleAndTooltip("Protocol 1 Servo Type", "Type of Servos.");
 	mServoTypeInterface->AddNumber(SERVO_TYPE_AX, "AX Servos (default)", "");
 	mServoTypeInterface->AddNumber(SERVO_TYPE_MX, "MX Servos", "");
-	mServoTypeInterface->AddNumber(SERVO_TYPE_XL, "XL Servos", "");
+	mServoTypeInterface->AddNumber(SERVO_TYPE_XL, "XL320 Servos", "");
+	mServoTypeInterface->AddNumber(SERVO_TYPE_X, "X Servos", "");
 	mServoTypeInterface->SetNumber(mServoType);
-
+	mServoTypeP2Interface.reset(new AnalyzerSettingInterfaceNumberList());
+	mServoTypeP2Interface->AddNumber(SERVO_TYPE_X, "X Servos (default)", "");
+	mServoTypeP2Interface->SetTitleAndTooltip("Protocol 2 Servo Type", "Type of Servos.");
+	mServoTypeP2Interface->AddNumber(SERVO_TYPE_MX, "MX Servos", "");
+	mServoTypeP2Interface->AddNumber(SERVO_TYPE_XL, "XL320 Servos", "");
+	mServoTypeP2Interface->SetNumber(mServoType_p2);
 	mShowWordsInterface.reset(new AnalyzerSettingInterfaceBool());
 	mShowWordsInterface->SetTitleAndTooltip("", "Show two registers Low/High are shown as a word.");
 	mShowWordsInterface->SetCheckBoxText("Show Register Pair values as words");
@@ -42,6 +49,7 @@ DynamixelAnalyzerSettings::DynamixelAnalyzerSettings()
 	AddInterface( mInputChannelInterface.get() );
 	AddInterface( mBitRateInterface.get() );
 	AddInterface( mServoTypeInterface.get() );
+	AddInterface(mServoTypeP2Interface.get());
 	AddInterface(mShowWordsInterface.get());
 	AddInterface(mServoControllerInterface.get());
 
@@ -61,6 +69,7 @@ bool DynamixelAnalyzerSettings::SetSettingsFromInterfaces()
 	mInputChannel = mInputChannelInterface->GetChannel();
 	mBitRate = mBitRateInterface->GetInteger();
 	mServoType = (U32)mServoTypeInterface->GetNumber();
+	mServoType_p2 = (U32)mServoTypeP2Interface->GetNumber();
 	mServoControllerID = (U32)mServoControllerInterface->GetNumber();
 	mShowWords = mShowWordsInterface->GetValue();
 
@@ -75,6 +84,7 @@ void DynamixelAnalyzerSettings::UpdateInterfacesFromSettings()
 	mInputChannelInterface->SetChannel( mInputChannel );
 	mBitRateInterface->SetInteger( mBitRate );
 	mServoTypeInterface->SetNumber( mServoType );
+	mServoTypeP2Interface->SetNumber(mServoType_p2);
 	mServoControllerInterface->SetNumber(mServoControllerID);
 	mShowWordsInterface->SetValue(mShowWords);
 
@@ -89,6 +99,7 @@ void DynamixelAnalyzerSettings::LoadSettings( const char* settings )
 	text_archive >> mBitRate;
 	text_archive >> mServoType;
 	text_archive >> mShowWords;
+	text_archive >> mServoType_p2;
 
 
 	ClearChannels();
@@ -105,6 +116,7 @@ const char* DynamixelAnalyzerSettings::SaveSettings()
 	text_archive << mBitRate;
 	text_archive << mServoType;
 	text_archive << mShowWords;
+	text_archive << mServoType_p2;
 
 
 
