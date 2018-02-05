@@ -100,7 +100,7 @@ void DynamixelAnalyzer::WorkerThread()
 					DecodeIndex = DE_HEADER1;
 					starting_sample = mSerial->GetSampleNumber();
 				}
-				else if (DecodeIndex == DE_DATA)
+				else if ((DecodeIndex == DE_DATA) || (DecodeIndex == DE_P2_DATA))
 				{
                     data_samples_starting[mCount] = mSerial->GetSampleNumber();
 				}
@@ -317,40 +317,63 @@ void DynamixelAnalyzer::WorkerThread()
 			// See if we are doing a SYNC_WRITE...  But not if error!
 			if ((mInstruction == SYNC_WRITE) && (mLength > 4) && (frame.mFlags == 0))
 			{
+				U8 count_of_servos;
+				U8 data_index;
+				U16 register_count;
+				U16 register_start;
+				if (protocol_2)
+				{
+					// MData: <rs low><rs high><rc low><rc high><Servo 1 data><Servo2 data>
+					register_start = mData[0] + (mData[1] << 8);
+					register_count = mData[2] + (mData[3] << 8);
+					count_of_servos = (mLength - 7) / (register_count + 1);	// Should validate this is correct but will try this for now...
+					data_index = 4;
+				}
+				else
+				{
+					// MData: <Reg start><Regcount><Servo one data><servo two data>
+					register_start = mData[0];
+					register_count = mData[1];
+					count_of_servos = (mLength - 4) / (register_count + 1);	// Should validate this is correct but will try this for now...
+					data_index = 2;
+
+				}
 				// Add Header Frame. 
 				// Data byte: <start reg><reg count> 
-				frame.mEndingSampleInclusive = data_samples_starting[1] + samples_per_bit * 10;
+
+				frame.mEndingSampleInclusive = data_samples_starting[data_index - 1] + samples_per_bit * 10;
 
 				mResults->AddFrame(frame);
 				ReportProgress(frame.mEndingSampleInclusive);
 
 				// Now lets figure out how many frames to add plus bytes per frame
-				U8 count_of_servos = (mLength - 4) / (mData[1] + 1);	// Should validate this is correct but will try this for now...
-				if (mData[1] && (mData[1] <= 8) && count_of_servos /*&& ((count_of_servos *(mData[1]+1)+4) == mLength)*/)
+				if (register_count && (register_count <= 8) && count_of_servos /*&& ((count_of_servos *(mData[1]+1)+4) == mLength)*/)
 				{
 					frame.mType = SYNC_WRITE_SERVO_DATA;
-					U8 data_index = 2;
 					for (U8 iServo = 0; iServo < count_of_servos; iServo++)
 					{
-						//frame.mStartingSampleInclusive = data_samples_starting[data_index];
-						frame.mStartingSampleInclusive = frame.mEndingSampleInclusive + 1;
+						frame.mStartingSampleInclusive = data_samples_starting[data_index];
+						//frame.mStartingSampleInclusive = frame.mEndingSampleInclusive + 1;
+						if ((iServo + 1) < count_of_servos)
+							frame.mEndingSampleInclusive = data_samples_starting[data_index + register_count] + samples_per_bit * 10;
+						else
+							frame.mEndingSampleInclusive = mSerial->GetSampleNumber();
 						// Now to encode the data bytes. 
 						// mData1 - Maybe Servo ID, 0, 0, Starting index, count bytes < updated same as other packets, but 
 						// mData2 - Up to 8 bytes per servo... Could pack more... but
 						// BUGBUG Should verify that count of bytes <= 8
-						frame.mData1 = mData[data_index] | (mData[0] << (3 * 8)) | ((U64)mData[1] << (4 * 8));
-						frame.mData2 = 0;
-						for (U8 i = mData[1]; i > 0; i--)
-							frame.mData2 = (frame.mData2 << 8) | mData[data_index + i];
-
-						data_index += mData[1] + 1;	// advance to start of next one...
-
-													// Now try to report this one. 
-						if ((iServo + 1) < count_of_servos)
-							frame.mEndingSampleInclusive = data_samples_starting[data_index - 1] + samples_per_bit * 10;
+						if (protocol_2)
+							frame.mData1 = mData[data_index++] | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)((register_start >> 8) & 0xff) << (5 * 8))
+							| ((U64)(register_count & 0xff) << (6 * 8)) | ((U64)((register_count >> 8) & 0xff) << (7 * 8));
 						else
-							frame.mEndingSampleInclusive = mSerial->GetSampleNumber();
+							frame.mData1 = mData[data_index++] | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)(register_count & 0xff) << (6 * 8));
 
+						frame.mData2 = 0;
+						for (U8 i = 0; i < register_count; i++)
+							frame.mData2 |= (U64)mData[data_index + i] << (i * 8);
+
+						data_index += register_count;	// advance to start of next one...
+						// Now try to report this one. 
 						mResults->AddFrame(frame);
 						ReportProgress(frame.mEndingSampleInclusive);
 					}

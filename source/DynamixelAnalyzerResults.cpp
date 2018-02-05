@@ -161,7 +161,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 {
 	ClearResultStrings();
 	Frame frame = GetFrame(frame_index);
-	bool Package_Handled = false;
+	bool frame_handled = false;
 	std::ostringstream ss;
 	const char *pregister_name;
 
@@ -203,9 +203,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		Data[i] = DataX & 0xff;
 		DataX >>= 8;
 	}
-
-
-
+	
 	if (protocol_2)
 	{
 		reg_start = Data[0] + (Data[1] << 8);
@@ -249,14 +247,14 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 			AddResultString("Checksum");
 			AddResultString("CHK: ", checksum_str, "!=", calc_checksum_str);
 		}
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if ((packet_type == DynamixelAnalyzer::APING) && (data_count == 0))
 	{
 		AddResultString("P");
 		AddResultString("PING");
 		AddResultString("PING ID(", id_str, ")");
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if (packet_type == DynamixelAnalyzer::READ)
 	{
@@ -276,7 +274,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 			}
 			ss << " LEN:" << reg_count_str;
 			AddResultString(ss.str().c_str());
-			Package_Handled = true;
+			frame_handled = true;
 		}
 	}
 	else if ( ((packet_type == DynamixelAnalyzer::WRITE) || (packet_type == DynamixelAnalyzer::REG_WRITE)) && (data_count > 1))
@@ -301,8 +299,8 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		// Need to redo as length is calculated. 
 		AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count_str, sizeof(reg_count_str));
 
-		char short_command_str[5];
-		char long_command_str[10];
+		char short_command_str[10];
+		char long_command_str[12];
 			if (packet_type == DynamixelAnalyzer::WRITE)
 		{
 			AddResultString("W");
@@ -327,39 +325,45 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		AddResultString(short_command_str, ss.str().c_str());
 
 		// Try to build string showing bytes
+		U16 register_number = reg_start;
 		if (count_data_bytes > 0)
 		{
 			ss << " D: ";
+			U8 loop_count = 0;
 			char w_str[20];
-			// for more bytes lets try concatenating strings... 
-			for (auto i = 0; i < count_data_bytes; i++)
+			U32 wval;
+			U8 last_data_index = index_data_byte + count_data_bytes;
+			if (last_data_index > 12) last_data_index = 12;
+			while (index_data_byte < last_data_index)
 			{
-				if (index_data_byte > 11) break;
-				if (i == 2)
+				if (loop_count == 2)
 					AddResultString(short_command_str, ss.str().c_str());
-				if (i != 0)
+				if (loop_count) {
 					ss << ", ";
+				}
+				loop_count++;
 
 				// now see if register is associated with a pair of registers. 
-				if ((i < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + i, protocol_2))
+				U8 data_size;
+				data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+				AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+				if (data_size > 1)
 				{
-					U32 wval = Data[index_data_byte] + (Data[index_data_byte +1] << 8);
-					AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-					index_data_byte += 2;  // update index to next byte to process
-					i++;	// need to update to handle the 2nd one...
-					ss << "$";
-				}
-				else
-				{
-					AnalyzerHelpers::GetNumberString(Data[index_data_byte], display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-					index_data_byte++;
+					if (data_size == 4)
+						ss << "#";
+					else
+					{
+						ss << "$";
+					}
 				}
 				ss << w_str;
+				reg_start += data_size;
+				index_data_byte += data_size;
 			}
 			AddResultString(short_command_str, ss.str().c_str());
 			AddResultString(long_command_str, ss.str().c_str());
 			
-			if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
+			if ((pregister_name = GetServoRegisterName(servo_id, register_number, protocol_2)))
 			{
 				AddResultString(short_command_str, "(", pregister_name, ")", ss.str().c_str());
 				AddResultString(long_command_str, "(", pregister_name, ")", ss.str().c_str());
@@ -369,14 +373,14 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		else
 			AddResultString(long_command_str, id_str, ") REG:", reg_start_str, " LEN:", reg_count_str);
 
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if ( (packet_type == DynamixelAnalyzer::ACTION ) && (data_count == 0) )
 	{
 		AddResultString( "A" );
 		AddResultString( "ACTION" );
 		AddResultString( "ACTION ID(", id_str , ")" );		
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if ( (packet_type == DynamixelAnalyzer::RESET ) && (data_count == 0) )
 	{
@@ -384,7 +388,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		AddResultString( "RESET" );
 		AddResultString( "RESET ID(", id_str , ")" );
 		AddResultString( "RESET ID(", id_str , ") LEN(", Packet_length_string, ")" );
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if (( packet_type == DynamixelAnalyzer::SYNC_WRITE ) && (data_count >= 2))
 	{
@@ -415,7 +419,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 
 		}
 
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
 	{
@@ -427,35 +431,45 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 
 		// for more bytes lets try concatenating strings... 
 		ss << ":";
-		U8 count_data_bytes = (frame.mData1 >> (5 * 8)) & 0xff;
-		for (U8 index_data_byte = 0; index_data_byte < count_data_bytes;)
-		{
-			if (index_data_byte == 2)
-				AddResultString(id_str, ss.str().c_str());
-			if (index_data_byte != 0)
-				ss << ", ";
 
-			if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
-			{
-				AnalyzerHelpers::GetNumberString(shift_data & 0xffff, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-				shift_data >>= 16;
-				index_data_byte += 2;
-				ss << "$";
+		U8 loop_count = 0;
+
+		U32 wval;
+		U8 index_data_byte = 4;	// start on 2nd word...
+		U8 last_data_index = index_data_byte + reg_count;
+		if (last_data_index > 12) last_data_index = 12;
+		while (index_data_byte < last_data_index)
+		{
+			if (loop_count == 2)
+				AddResultString(id_str, ss.str().c_str());
+			if (loop_count) {
+				ss << ", ";
 			}
-			else
+			loop_count++;
+
+			// now see if register is associated with a pair of registers. 
+			U8 data_size;
+			data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+			AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+			if (data_size > 1)
 			{
-				AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-				shift_data >>= 8;
-				index_data_byte++;
+				if (data_size == 4)
+					ss << "#";
+				else
+				{
+					ss << "$";
+				}
 			}
 			ss << w_str;
+			reg_start += data_size;
+			index_data_byte += data_size;
 		}
 		AddResultString(id_str, ss.str().c_str());
-		Package_Handled = true;
+		frame_handled = true;
 	}
 
 	// If the package was not handled, and packet type 0 then probably normal response, else maybe respone with error status
-	if (!Package_Handled)
+	if (!frame_handled)
 	{
 		U8 count_data_bytes;
 		U8 index_data_byte;
@@ -539,6 +553,8 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 	}
 }
 
+//-----------------------------------------------------------------------------
+
 U8 DynamixelAnalyzerResults::NextDataValue(U8 servo_id, U16 register_index, U8 data_index, U8 *Data, U8 data_length, bool protocol_2, U32 &w_val)
 {
 	// now see if register is associated with a pair of registers. 
@@ -562,6 +578,7 @@ U8 DynamixelAnalyzerResults::NextDataValue(U8 servo_id, U16 register_index, U8 d
 	return multibyte_register;
 }
 
+//-----------------------------------------------------------------------------
 
 void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase display_base, U32 export_type_user_id )
 {
@@ -590,34 +607,55 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 		AnalyzerHelpers::GetTimeString( frame.mStartingSampleInclusive, trigger_sample, sample_rate, time_str, sizeof(time_str) );
 
 		//-----------------------------------------------------------------------------
-		bool Package_Handled = false;
-		U8 Packet_length = (frame.mData1 >> (2 * 8)) & 0xff;
-
-
-		// First lets try to output the common stuff, like time, type, id
-	
+		bool frame_handled = false;
 
 		// Note: the mData1 and mData2 are encoded with as much of the data as we can fit.
 		// frame.mType has our = packet type
-		// mData1 bytes low to high ID, Checksum, length, data0-data4
-		// mData2  data5-12
+		// mData1 bytes low to high ID, Checksum, <CRC2>, length, data0-3
+		// mData2  data4-11
 
 		U8 packet_type = frame.mType;
+		U8 servo_id = frame.mData1 & 0xff;
+		U8 Packet_length = (frame.mData1 >> (3 * 8)) & 0xff;
+		U16 CRC = (frame.mData1 >> (1 * 8)) & 0xffff;
+		bool protocol_2 = (CRC & 0xff00) != 0;
 
 		AnalyzerHelpers::GetNumberString(packet_type, display_base, 8, w_str, sizeof(w_str));
-		U8 servo_id = frame.mData1 & 0xff;
 		AnalyzerHelpers::GetNumberString(servo_id, display_base, 8, id_str, sizeof(id_str));
 
-		// Note: only used in some packets...
-		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
-		U8 reg_count = (frame.mData1 >> (4 * 8)) & 0xff;
+		U8 data_count = protocol_2 ? (Packet_length - 3) : (Packet_length - 2);
+
+		U8 Data[12];		// Quick and dirty simply extract all up to 11 data paramters back into an array.
+		U64 DataX = frame.mData1 >> 32;
+		for (auto i = 0; i < 4; i++) {
+			Data[i] = DataX & 0xff;
+			DataX >>= 8;
+		}
+		DataX = frame.mData2;
+		for (auto i = 4; i < 12; i++) {
+			Data[i] = DataX & 0xff;
+			DataX >>= 8;
+		}
+
+		U16 reg_start;
+		U16 reg_count;
+
+		if (protocol_2)
+		{
+			reg_start = Data[0] + (Data[1] << 8);
+			reg_count = Data[2] + (Data[3] << 8);
+		}
+		else
+		{
+			reg_start = Data[0];
+			reg_count = Data[1];
+		}
 		AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
 
 		if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
 			reg_start_name_str_ptr = pregister_name;
 		else
 			reg_start_name_str_ptr = "";
-
 
 		AnalyzerHelpers::GetNumberString(reg_count, display_base, 8, reg_count_str, sizeof(reg_count_str));
 
@@ -643,111 +681,142 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 		file_stream << time_str << "," << w_str << "," << instruct_str_ptr << "," << id_str;
 
 		// Now lets handle the different packet types
-		if ((Packet_length == 2) && (
+		if ((data_count == 0) && (
 				(packet_type == DynamixelAnalyzer::ACTION) ||
 				(packet_type == DynamixelAnalyzer::RESET) ||
 				(packet_type == DynamixelAnalyzer::APING)))
 		{
 			if (strlen(status_str))
 				file_stream << "," << status_str;
-			Package_Handled = true;
+			frame_handled = true;
 		}
-		else if ((packet_type == DynamixelAnalyzer::READ) && (Packet_length == 4))
+		else if (packet_type == DynamixelAnalyzer::READ)
 		{
 			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
-			Package_Handled = true;
+			frame_handled = true;
 		}
 
 		else if (((packet_type == DynamixelAnalyzer::WRITE) || (packet_type == DynamixelAnalyzer::REG_WRITE)) && (Packet_length > 3))
 		{
-			U8 count_data_bytes = Packet_length - 3;
+			U8 count_data_bytes;
+			U8 index_data_byte;
+			if (protocol_2)
+			{
+				// Packet length includes: <cmd><Reg_l><Reg_H>{DATA]<CRC_L><CRC_H>  so for write 1 byte 6 bytes we have 5 overhead.
+				count_data_bytes = Packet_length - 5;
+				index_data_byte = 2;
+			}
+			else {
+				// Packet length includes: <cmd><Reg>{DATA]<Checksum>  so for write 1 cnt 6 bytes we have 5 overhead.
+				count_data_bytes = Packet_length - 3;
+				index_data_byte = 1;
+			}
+
 			// output first part... Warning: Write register count is not stored but derived...
 			AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count_str, sizeof(reg_count_str));
 			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
 
 			// Try to build string showing bytes
+			// Try to build string showing bytes
 			if (count_data_bytes > 0)
 			{
-				U64 shift_data = frame.mData1 >> (3 * 8);
-				if (count_data_bytes > 13)
-					count_data_bytes = 13;	// Max bytes we can store
-				for (U8 index_data_byte = 0; index_data_byte < count_data_bytes; )
+				U8 loop_count = 0;
+				char w_str[20];
+				U32 wval;
+				U8 last_data_index = index_data_byte + count_data_bytes;
+				if (last_data_index > 12) last_data_index = 12;
+				while (index_data_byte < last_data_index)
 				{
+					file_stream << ", ";
 					// now see if register is associated with a pair of registers. 
-					if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
+					U8 data_size;
+					data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+					AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+					if (data_size > 1)
 					{
-						// need to special case index 4 as it splits the two mdata members
-						U16 wval;
-						if (index_data_byte == 4) {
-							wval = ((frame.mData2 & 0xff) << 8) | (shift_data & 0xff);
-							shift_data = frame.mData2 >> 8;		// setup for next one
-						}
-						else {
-							wval = shift_data & 0xffff;
-							shift_data >>= 8;
-						}
-						AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-						index_data_byte += 2;  // update index to next byte to process
-						file_stream << "$";
-					}
-					else
-					{
-						AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-						index_data_byte++;
-						if (index_data_byte == 4)
-							shift_data = frame.mData2;
+						if (data_size == 4)
+							file_stream << "#";
 						else
-							shift_data >>= 8;
+						{
+							file_stream << "$";
+						}
 					}
-
 					file_stream << w_str;
+					reg_start += data_size;
+					index_data_byte += data_size;
 				}
 			}
-			Package_Handled = true;
+			frame_handled = true;
 		}
 		else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (Packet_length >= 4))
 		{
 			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
-			Package_Handled = true;
+			frame_handled = true;
 		}
 		else if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
 		{
 			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
-			U64 shift_data = frame.mData2;
 
-			// for more bytes lets try concatenating strings... 
-			U8 count_data_bytes = (frame.mData1 >> (4 * 8)) & 0xff;
-			for (U8 index_data_byte = 0; index_data_byte < count_data_bytes;)
+			char w_str[20];
+
+			U32 wval;
+			U8 index_data_byte = 4;	// start on 2nd word...
+			U8 last_data_index = index_data_byte + reg_count;
+			if (last_data_index > 12) last_data_index = 12;
+			while (index_data_byte < last_data_index)
 			{
-				file_stream << ",";
-				if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
+				file_stream << ", ";
+
+				// now see if register is associated with a pair of registers. 
+				U8 data_size;
+				data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+				AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+				if (data_size > 1)
 				{
-					AnalyzerHelpers::GetNumberString(shift_data & 0xffff, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-					shift_data >>= 16;
-					index_data_byte += 2;
-					file_stream << "$";
-				}
-				else
-				{
-					AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-					shift_data >>= 8;
-					index_data_byte++;
+					if (data_size == 4)
+						file_stream << "#";
+					else
+					{
+						file_stream << "$";
+					}
 				}
 				file_stream << w_str;
+				reg_start += data_size;
+				index_data_byte += data_size;
 			}
 
-			Package_Handled = true;
+			frame_handled = true;
 		}
 
 		// If the package was not handled, and packet type 0 then probably normal response, else maybe respone with error status
-		if (!Package_Handled)
+		if (!frame_handled)
 		{
-			U8 count_data_bytes = Packet_length - 2;
+			U8 count_data_bytes;
+			U8 index_data_byte;
+			U8 error_code = 0;
+			if (protocol_2)
+			{
+
+				error_code = (packet_type == DynamixelAnalyzer::STATUS) ? Data[0] : packet_type;	// first byte is error status
+				count_data_bytes = Packet_length - 4;
+				index_data_byte = 1;
+			}
+			else
+			{
+				count_data_bytes = Packet_length - 2;
+				index_data_byte = 0;
+				if (packet_type != DynamixelAnalyzer::NONE)
+					error_code = packet_type;
+			}
+
 			AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count_str, sizeof(reg_count_str));
 
-			if (packet_type == DynamixelAnalyzer::NONE)
+			// Replay for read current position
+			//P2: ff ff fd 00 02 08 00 55 00 1a 03 00 00 25 7a - Status Servo 2 <status 0> 4 bytes position 1a 3 0 0 -> 794
+			//P1 :ff ff 15 04 00 f3 01 f2 -  Status servo 15 status 0 pos: f3 01 -> 499
+			if (error_code == 0)
 			{
-				reg_start = (frame.mData2 >> (7 * 8)) & 0xff;
+				reg_start = Data[11];	// extract the start register we stashed earlier
 				if (reg_start != 0xff)
 				{
 					AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
@@ -756,7 +825,7 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 					else
 						reg_start_name_str_ptr = "";
 
-					file_stream << "," << status_str << "," << reg_start_str << ","<< reg_start_name_str_ptr << "," << reg_count_str;
+					file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
 				}
 				else
 					file_stream << "," << status_str << ",,," << reg_count_str;
@@ -767,47 +836,33 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 				file_stream << "," << status_str << ",,," << reg_count_str;
 			}
 
-			// Try to build string showing bytes
 			if (count_data_bytes)
 			{
-				U64 shift_data = frame.mData1 >> (3 * 8);
-
-				if (count_data_bytes > 12)
-					count_data_bytes = 12;	// Max bytes we can store
-
-				for (U8 index_data_byte = 0; index_data_byte < count_data_bytes; )
+				char w_str[20];
+				U32 wval;
+				U8 last_data_index = index_data_byte + count_data_bytes;
+				if (last_data_index > 12) last_data_index = 12;
+				while (index_data_byte < last_data_index)
 				{
+					// now see if register is associated with a pair of registers. 
+					U8 data_size;
+					data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+					AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
 					file_stream << ", ";
 
-					// now see if register is associated with a pair of registers. 
-					if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
+					if (data_size > 1)
 					{
-						// need to special case index 4 as it splits the two mdata members
-						U16 wval;
-						if (index_data_byte == 4) {
-							wval = ((frame.mData2 & 0xff) << 8) | (shift_data & 0xff);
-							shift_data = frame.mData2 >> 8;		// setup for next one
-						}
-						else {
-							wval = shift_data & 0xffff;
-							shift_data >>= 16;
-						}
-						AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-						index_data_byte += 2;  // update index to next byte to process
-						file_stream << "$";
-					}
-					else
-					{
-						AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-						index_data_byte++;
-						if (index_data_byte == 3)
-						{
-							shift_data = frame.mData2;
-						}
+						if (data_size == 4)
+							file_stream << "#";
 						else
-							shift_data >>= 8;
+						{
+							file_stream << "$";
+						}
 					}
 					file_stream << w_str;
+
+					reg_start += data_size;
+					index_data_byte += data_size;
 				}
 			}
 		}
@@ -828,22 +883,61 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 	ClearTabularText();
 	std::ostringstream ss;
 	Frame frame = GetFrame(frame_index);
-	bool Package_Handled = false;
-	U8 Packet_length = (frame.mData1 >> (2 * 8)) & 0xff;
+	bool frame_handled = false;
 	const char *pregister_name;
 
+	char id_str[16];
+	char w_str[20];
+	char reg_count_str[20];
+	char reg_start_str[16];
 
 	// Note: the mData1 and mData2 are encoded with as much of the data as we can fit.
 	// frame.mType has our = packet type
-	// mData1 bytes low to high ID, Checksum, length, data0-data4
-	// mData2  data5-12
-
-	char id_str[16];
-	U8 servo_id = frame.mData1 & 0xff;
-	AnalyzerHelpers::GetNumberString(servo_id, display_base, 8, id_str, sizeof(id_str));
+	// mData1 bytes low to high ID, Checksum, CRC2, length, data0-data3
+	// mData2  data4-11
 
 	U8 packet_type = frame.mType;
-	//char checksum = ( frame.mData2 >> ( 1 * 8 ) ) & 0xff;
+	U8 servo_id = frame.mData1 & 0xff;
+	U8 Packet_length = (frame.mData1 >> (3 * 8)) & 0xff;
+	U16 CRC = (frame.mData1 >> (1 * 8)) & 0xffff;
+	bool protocol_2 = (CRC & 0xff00) != 0;
+
+
+	U8 data_count = protocol_2 ? (Packet_length - 3) : (Packet_length - 2);
+
+	U8 Data[12];		// Quick and dirty simply extract all up to 11 data paramters back into an array.
+	U64 DataX = frame.mData1 >> 32;
+	for (auto i = 0; i < 4; i++) {
+		Data[i] = DataX & 0xff;
+		DataX >>= 8;
+	}
+	DataX = frame.mData2;
+	for (auto i = 4; i < 12; i++) {
+		Data[i] = DataX & 0xff;
+		DataX >>= 8;
+	}
+
+	U16 reg_start;
+	U16 reg_count;
+
+	if (protocol_2)
+	{
+		reg_start = Data[0] + (Data[1] << 8);
+		reg_count = Data[2] + (Data[3] << 8);
+	}
+	else
+	{
+		reg_start = Data[0];
+		reg_count = Data[1];
+	}
+
+	AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
+	AnalyzerHelpers::GetNumberString(packet_type, display_base, 8, w_str, sizeof(w_str));
+	AnalyzerHelpers::GetNumberString(servo_id, display_base, 8, id_str, sizeof(id_str));
+
+
+	AnalyzerHelpers::GetNumberString(servo_id, display_base, 8, id_str, sizeof(id_str));
+
 
 	if (frame.mFlags & DISPLAY_AS_ERROR_FLAG)
 	{
@@ -857,110 +951,109 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 
 		ss << "CHK " << checksum_str << " != " << calc_checksum_str;
 		AddResultString(ss.str().c_str());
-		Package_Handled = true;
+		frame_handled = true;
 	}
-	else if ((packet_type == DynamixelAnalyzer::APING) && (Packet_length == 2))
+	else if ((packet_type == DynamixelAnalyzer::APING) && (data_count == 0))
 	{
 		ss << "PG " << id_str;
-		Package_Handled = true;
+		frame_handled = true;
 	}
-	else if ((packet_type == DynamixelAnalyzer::READ) && (Packet_length == 4))
+	else if ((packet_type == DynamixelAnalyzer::READ))
 	{
-		char reg_start_str[16];
-		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
 		AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
-		char reg_count[20];
-		AnalyzerHelpers::GetNumberString((frame.mData1 >> (4 * 8)) & 0xff, display_base, 8, reg_count, sizeof(reg_count));
+		AnalyzerHelpers::GetNumberString(reg_count, display_base, 8, reg_count_str, sizeof(reg_count_str));
 
-		ss << "RD " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
+		ss << "RD " << id_str << ": R:" << reg_start_str << " L:" << reg_count_str;
 		if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
 		{
 			ss <<" - ";
 			ss << pregister_name;
 		}
-		Package_Handled = true;
+		frame_handled = true;
 	}
 
-	else if (((packet_type == DynamixelAnalyzer::WRITE) || (packet_type == DynamixelAnalyzer::REG_WRITE)) && (Packet_length > 3))
+	else if (((packet_type == DynamixelAnalyzer::WRITE) || (packet_type == DynamixelAnalyzer::REG_WRITE)) && (data_count > 0))
 	{
 		// Assume packet must have at least two data bytes: starting register and at least one byte.
-		char reg_count[20];
-		char reg_start_str[20];
-		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
-		U8 count_data_bytes = Packet_length - 3;
+		U8 count_data_bytes;
+		U8 index_data_byte;
+		if (protocol_2)
+		{
+			// Packet length includes: <cmd><Reg_l><Reg_H>{DATA]<CRC_L><CRC_H>  so for write 1 byte 6 bytes we have 5 overhead.
+			count_data_bytes = Packet_length - 5;
+			index_data_byte = 2;
+		}
+		else {
+			// Packet length includes: <cmd><Reg>{DATA]<Checksum>  so for write 1 cnt 6 bytes we have 5 overhead.
+			count_data_bytes = Packet_length - 3;
+			index_data_byte = 1;
+		}
 
 		AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
-		AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count, sizeof(reg_count));
+		AnalyzerHelpers::GetNumberString(reg_count, display_base, 8, reg_count_str, sizeof(reg_count_str));
 
 		if (packet_type == DynamixelAnalyzer::WRITE)
 		{
-			ss << "WR " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
+			ss << "WR " << id_str << ": R:" << reg_start_str << " L:" << reg_count_str;
 		}
 		else
 		{
-			ss << "RW " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
+			ss << "RW " << id_str << ": R:" << reg_start_str << " L:" << reg_count_str;
 		}
 
-		// Try to build string showing bytes
 		if (count_data_bytes > 0)
 		{
-			U64 shift_data = frame.mData1 >> (3 * 8);
+			ss << " D: ";
+			U8 loop_count = 0;
 			char w_str[20];
-			if (count_data_bytes > 13)
-				count_data_bytes = 13;	// Max bytes we can store
-			for (U8 index_data_byte = 0; index_data_byte < count_data_bytes; )
+			U32 wval;
+			U8 last_data_index = index_data_byte + count_data_bytes;
+			if (last_data_index > 12) last_data_index = 12;
+			while (index_data_byte < last_data_index)
 			{
-				if (index_data_byte != 0)
+				if (loop_count) {
 					ss << ", ";
+				}
+				loop_count++;
 
 				// now see if register is associated with a pair of registers. 
-				if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
+				U8 data_size;
+				data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+				AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+				if (data_size > 1)
 				{
-					// need to special case index 4 as it splits the two mdata members
-					U16 wval;
-					if (index_data_byte == 4) {
-						wval = ((frame.mData2 & 0xff) << 8) | (shift_data & 0xff);
-						shift_data = frame.mData2 >> 8;		// setup for next one
-					}
-					else {
-						wval = shift_data & 0xffff;
-						shift_data >>= 8;
-					}
-					AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-					index_data_byte += 2;  // update index to next byte to process
-					ss << "$";
-				}
-				else
-				{
-					AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-					index_data_byte++;
-					if (index_data_byte == 4)
-						shift_data = frame.mData2;
+					if (data_size == 4)
+						ss << "#";
 					else
-						shift_data >>= 8;
+					{
+						ss << "$";
+					}
 				}
-
 				ss << w_str;
+				reg_start += data_size;
+				index_data_byte += data_size;
 			}
 
-			if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
+			if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
 			{
 				ss << " - " << pregister_name;
 			}
+
 		}
-		Package_Handled = true;
+
+		frame_handled = true;
 	}
-	else if ((packet_type == DynamixelAnalyzer::ACTION) && (Packet_length == 2))
+	else if ((packet_type == DynamixelAnalyzer::ACTION) && (data_count == 0))
 	{
 		ss << "AC " << id_str;
-		Package_Handled = true;
+		frame_handled = true;
 	}
-	else if ((packet_type == DynamixelAnalyzer::RESET) && (Packet_length == 2))
+	else if ((packet_type == DynamixelAnalyzer::RESET) && (data_count == 0))
 	{
 		ss << "RS " << id_str;
-		Package_Handled = true;
+		frame_handled = true;
 	}
-	else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (Packet_length >= 4))
+	else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (data_count >= 2))
 	{
 		char reg_start_str[20];
 		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
@@ -973,7 +1066,7 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 		{
 			ss << " - " << pregister_name;
 		}
-		Package_Handled = true;
+		frame_handled = true;
 	}
 	else if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
 	{
@@ -1008,48 +1101,80 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 			ss << w_str;
 		}
 
-		Package_Handled = true;
+		frame_handled = true;
 	}
 
-	// If the package was not handled, and packet type 0 then probably normal response, else maybe respone with error status
-	if (!Package_Handled)
+	if (!frame_handled)
 	{
-		char reg_count[16];
-		U8 count_data_bytes = Packet_length - 2;
-		AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count, sizeof(reg_count));
-
-		if (packet_type == DynamixelAnalyzer::NONE)
+		U8 count_data_bytes;
+		U8 index_data_byte;
+		U8 error_code = 0;
+		if (protocol_2)
 		{
-			ss << "RP " << id_str;
+
+			error_code = (packet_type == DynamixelAnalyzer::STATUS) ? Data[0] : packet_type;	// first byte is error status
+			count_data_bytes = Packet_length - 4;
+			index_data_byte = 1;
 		}
 		else
 		{
-			char status_str[16];
-			AnalyzerHelpers::GetNumberString(packet_type, display_base, 8, status_str, sizeof(status_str));
-			ss << "SR " << id_str << " " << status_str;
+			count_data_bytes = Packet_length - 2;
+			index_data_byte = 0;
+			if (packet_type != DynamixelAnalyzer::NONE)
+				error_code = packet_type;
 		}
 
-		// Try to build string showing bytes
+		AnalyzerHelpers::GetNumberString(count_data_bytes, display_base, 8, reg_count_str, sizeof(reg_count_str));
+
+		// Replay for read current position
+		//P2: ff ff fd 00 02 08 00 55 00 1a 03 00 00 25 7a - Status Servo 2 <status 0> 4 bytes position 1a 3 0 0 -> 794
+		//P1 :ff ff 15 04 00 f3 01 f2 -  Status servo 15 status 0 pos: f3 01 -> 499
+		if (error_code == 0)
+		{
+			ss << "RP " << id_str;
+			reg_start = Data[11];	// extract the start register we stashed earlier
+		}
+		else
+		{
+			char status_str[20];
+			AnalyzerHelpers::GetNumberString(error_code, display_base, 8, status_str, sizeof(status_str));
+			ss << "SR " << id_str << " " << status_str;
+			reg_start = 0xff;		// make sure 
+		}
+
+		AddResultString(ss.str().c_str());
+
 		if (count_data_bytes)
 		{
 			ss << "L:" << reg_count << "D:";
-
-			char w_str[16];
-			U64 shift_data = frame.mData1 >> (2 * 8);
-			// for more bytes lets try concatenating strings... 
-			// we can reuse some of the above strings, as params_str has our first two parameters. 
-			if (count_data_bytes > 12)
-				count_data_bytes = 12;	// Max bytes we can store
-			for (U8 i = 0; i < count_data_bytes; i++)
+			bool first_data_item = true;
+			char w_str[20];
+			U32 wval;
+			U8 last_data_index = index_data_byte + count_data_bytes;
+			if (last_data_index > 12) last_data_index = 12;
+			while (index_data_byte < last_data_index)
 			{
-				if (i == 5)
-					shift_data = frame.mData2;
-				else
-					shift_data >>= 8;
-				AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-				if (i != 0)
-					ss <<", ";
+				if (!first_data_item != 0) {
+					ss << ", ";
+				}
+				first_data_item = false;
+
+				// now see if register is associated with a pair of registers. 
+				U8 data_size;
+				data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+				AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+				if (data_size > 1)
+				{
+					if (data_size == 4)
+						ss << "#";
+					else
+					{
+						ss << "$";
+					}
+				}
 				ss << w_str;
+				reg_start += data_size;
+				index_data_byte += data_size;
 			}
 		}
 	}
@@ -1108,6 +1233,7 @@ const char * DynamixelAnalyzerResults::GetServoRegisterName(U8 servo_id, U16 reg
 	return NULL;
 }
 
+//=============================================================================
 
 U8 DynamixelAnalyzerResults::IsRegisterIndexStartOfMultipleByteValue(U8 servo_id, U16 register_number, bool protocol_2)
 {
