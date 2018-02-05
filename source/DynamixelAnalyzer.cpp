@@ -362,11 +362,11 @@ void DynamixelAnalyzer::WorkerThread()
 						// mData1 - Maybe Servo ID, 0, 0, Starting index, count bytes < updated same as other packets, but 
 						// mData2 - Up to 8 bytes per servo... Could pack more... but
 						// BUGBUG Should verify that count of bytes <= 8
-						if (protocol_2)
-							frame.mData1 = mData[data_index++] | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)((register_start >> 8) & 0xff) << (5 * 8))
+						if (protocol_2)  // Note: the ff0000 should let the other side know that we are Protocol2...
+							frame.mData1 = mData[data_index++] | 0xff0000 | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)((register_start >> 8) & 0xff) << (5 * 8))
 							| ((U64)(register_count & 0xff) << (6 * 8)) | ((U64)((register_count >> 8) & 0xff) << (7 * 8));
 						else
-							frame.mData1 = mData[data_index++] | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)(register_count & 0xff) << (6 * 8));
+							frame.mData1 = mData[data_index++] | ((U64)(register_start & 0xff) << (4 * 8)) | ((U64)(register_count & 0xff) << (5 * 8));
 
 						frame.mData2 = 0;
 						for (U8 i = 0; i < register_count; i++)

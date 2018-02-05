@@ -407,12 +407,13 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 
 		ss << "REG:" << reg_start_str;
 		AddResultString("SW", ss.str().c_str());
-		ss << " LEN:" << reg_count_str;
-		AddResultString("SW", ss.str().c_str());
+
+	//	ss << " LEN:" << reg_count_str;
+		AddResultString("SW", ss.str().c_str(), "LEN:", reg_count_str);
 
 		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
 		{
-			ss << " REG: " << reg_start_str << "(" << pregister_name
+			ss << "(" << pregister_name
 				<< ") LEN: " << reg_count_str;
 			AddResultString("SW", ss.str().c_str());
 			AddResultString("SYNC_WRITE", ss.str().c_str());
@@ -427,8 +428,6 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		AddResultString(id_str);	// Show Servo number.
 		char w_str[20];
 
-		U64 shift_data = frame.mData2;
-
 		// for more bytes lets try concatenating strings... 
 		ss << ":";
 
@@ -440,7 +439,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		if (last_data_index > 12) last_data_index = 12;
 		while (index_data_byte < last_data_index)
 		{
-			if (loop_count == 2)
+			if (loop_count == 1)
 				AddResultString(id_str, ss.str().c_str());
 			if (loop_count) {
 				ss << ", ";
@@ -1055,14 +1054,8 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 	}
 	else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (data_count >= 2))
 	{
-		char reg_start_str[20];
-		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
-		AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
-		char reg_count[20];
-		AnalyzerHelpers::GetNumberString((frame.mData1 >> (4 * 8)) & 0xff, display_base, 8, reg_count, sizeof(reg_count));
-
 		ss <<"SW " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
-		if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
+		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
 		{
 			ss << " - " << pregister_name;
 		}
@@ -1070,37 +1063,35 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 	}
 	else if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
 	{
-		ss << "SD " << id_str;
 		char w_str[20];
+		ss << "SD " << id_str << " ";
 
-		U64 shift_data = frame.mData2;
-		U8 reg_start = (frame.mData1 >> (3 * 8)) & 0xff;
-
-		// for more bytes lets try concatenating strings... 
-		U8 count_data_bytes = (frame.mData1 >> (4 * 8)) & 0xff;
-		if (count_data_bytes > 7)
-			count_data_bytes = 7;
-		for (U8 index_data_byte = 0; index_data_byte < count_data_bytes;)
+		U32 wval;
+		U8 index_data_byte = 4;	// start on 2nd word...
+		U8 last_data_index = index_data_byte + reg_count;
+		if (last_data_index > 12) last_data_index = 12;
+		bool first_item = true; 
+		while (index_data_byte < last_data_index)
 		{
-			if (index_data_byte != 0)
-				ss << ", ";
-
-			if ((index_data_byte < (count_data_bytes - 1)) && IsRegisterIndexStartOfMultipleByteValue(servo_id, reg_start + index_data_byte))
+			// now see if register is associated with a pair of registers. 
+			U8 data_size;
+			data_size = NextDataValue(servo_id, reg_start, index_data_byte, Data, last_data_index, protocol_2, wval);
+			AnalyzerHelpers::GetNumberString(wval, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+			if (!first_item) ss << ", ";
+			first_item = false; 
+			if (data_size > 1)
 			{
-				AnalyzerHelpers::GetNumberString(shift_data & 0xffff, display_base, 16, w_str, sizeof(w_str));	// reuse string; 
-				shift_data >>= 16;
-				index_data_byte += 2;
-				ss << "$";
-			}
-			else
-			{
-				AnalyzerHelpers::GetNumberString(shift_data & 0xff, display_base, 8, w_str, sizeof(w_str));	// reuse string; 
-				shift_data >>= 8;
-				index_data_byte++;
+				if (data_size == 4)
+					ss << "#";
+				else
+				{
+					ss << "$";
+				}
 			}
 			ss << w_str;
+			reg_start += data_size;
+			index_data_byte += data_size;
 		}
-
 		frame_handled = true;
 	}
 
