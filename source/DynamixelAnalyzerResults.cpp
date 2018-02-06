@@ -9,9 +9,12 @@
 //=============================================================================
 // Define Global/Static data
 //=============================================================================
+static const U8 s_instructions[] = { DynamixelAnalyzer::NONE, DynamixelAnalyzer::APING, DynamixelAnalyzer::READ, DynamixelAnalyzer::WRITE, DynamixelAnalyzer::REG_WRITE, 
+	DynamixelAnalyzer::ACTION, DynamixelAnalyzer::RESET, DynamixelAnalyzer::STATUS , DynamixelAnalyzer::SYNC_WRITE,  DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA };
+
 static const char * s_instruction_names[] = {
-	"REPLY", "PING", "READ", "WRITE", "REG_WRITE", "ACTION", "RESET",
-	"SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
+	"REPLY", "PING", "READ", "WRITE", "REG_WRITE", 
+	"ACTION", "RESET", "REPLY", "SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
 
 
 // AX Servos
@@ -651,7 +654,7 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 		}
 		AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
 
-		if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
+		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
 			reg_start_name_str_ptr = pregister_name;
 		else
 			reg_start_name_str_ptr = "";
@@ -665,17 +668,21 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 			status_str[0] = 0;
 
 		// Figure out our Instruction string
-		if (packet_type < (sizeof(s_instruction_names) / sizeof(s_instruction_names[0])))
-			instruct_str_ptr = s_instruction_names[packet_type];
-		else if (packet_type == DynamixelAnalyzer::SYNC_WRITE)
-			instruct_str_ptr = s_instruction_names[7];	// BUGBUG:: Should not hard code
-		else if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
+		U8 packet_type_index;
+		instruct_str_ptr = "";
+		for (packet_type_index = 0; packet_type_index < sizeof(s_instructions); packet_type_index++)
 		{
-			instruct_str_ptr = s_instruction_names[8];	// BUGBUG:: Should not hard code
+			if (packet_type == s_instructions[packet_type_index])
+			{
+				instruct_str_ptr = s_instruction_names[packet_type_index];
+				break;
+			}
+		}
+		
+		if (packet_type == DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA)
+		{
 			w_str[0] = 0;	// lets not output our coded 0xff
 		}
-		else
-			instruct_str_ptr = "";
 
 		file_stream << time_str << "," << w_str << "," << instruct_str_ptr << "," << id_str;
 
@@ -795,7 +802,6 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 			U8 error_code = 0;
 			if (protocol_2)
 			{
-
 				error_code = (packet_type == DynamixelAnalyzer::STATUS) ? Data[0] : packet_type;	// first byte is error status
 				count_data_bytes = Packet_length - 4;
 				index_data_byte = 1;
@@ -819,7 +825,7 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 				if (reg_start != 0xff)
 				{
 					AnalyzerHelpers::GetNumberString(reg_start, display_base, 8, reg_start_str, sizeof(reg_start_str));
-					if ((pregister_name = GetServoRegisterName(servo_id, reg_start)))
+					if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
 						reg_start_name_str_ptr = pregister_name;
 					else
 						reg_start_name_str_ptr = "";
