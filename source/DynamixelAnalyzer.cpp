@@ -299,7 +299,8 @@ void DynamixelAnalyzer::WorkerThread()
 				// Maybe encode starting register as mData[12]
 				if ((mInstruction == DynamixelAnalyzer::NONE) || (mInstruction == DynamixelAnalyzer::STATUS))
 				{
-					if ((mID == previous_ID) && (previous_instruction == DynamixelAnalyzer::READ))
+					if (((mID == previous_ID) && (previous_instruction == DynamixelAnalyzer::READ))
+						 || (previous_instruction == DynamixelAnalyzer::SYNC_READ) || (previous_instruction == DynamixelAnalyzer::STATUS))
 						mData[11] = previous_reg_start;
 					else
 						mData[11] = 0xff;
@@ -389,11 +390,16 @@ void DynamixelAnalyzer::WorkerThread()
 			}
 			previous_ID = mID;
 			previous_instruction = mInstruction;
-			if (previous_instruction == DynamixelAnalyzer::READ)
+			switch (previous_instruction) {
+			case  DynamixelAnalyzer::READ:
+			case DynamixelAnalyzer::SYNC_READ:
 				previous_reg_start = mData[0];	// 0 should be reg start...
-			else
+				break;
+			case DynamixelAnalyzer::STATUS:
+				break; // leave previous value...
+			default:
 				previous_reg_start = 0xff;		// Not read...
-
+			}
 		}
 
 		// Update checksums... 

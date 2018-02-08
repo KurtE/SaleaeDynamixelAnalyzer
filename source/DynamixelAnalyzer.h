@@ -30,7 +30,9 @@ public:
 	  ACTION,
 	  RESET,
 	  STATUS=0x55,					// Protocol 2 status message
+	  SYNC_READ=0x82,				// Protocol 2 only
 	  SYNC_WRITE=0x83,
+	  SYNC_READ_SERVOS=0xfe,			// Special case for additional parameters. 
       SYNC_WRITE_SERVO_DATA=0xff		// Special case for where we break up sync write into multiple frames. 
 	};
 

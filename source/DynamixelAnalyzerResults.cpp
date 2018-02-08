@@ -10,11 +10,11 @@
 // Define Global/Static data
 //=============================================================================
 static const U8 s_instructions[] = { DynamixelAnalyzer::NONE, DynamixelAnalyzer::APING, DynamixelAnalyzer::READ, DynamixelAnalyzer::WRITE, DynamixelAnalyzer::REG_WRITE, 
-	DynamixelAnalyzer::ACTION, DynamixelAnalyzer::RESET, DynamixelAnalyzer::STATUS , DynamixelAnalyzer::SYNC_WRITE,  DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA };
+	DynamixelAnalyzer::ACTION, DynamixelAnalyzer::RESET, DynamixelAnalyzer::STATUS , DynamixelAnalyzer::SYNC_READ, DynamixelAnalyzer::SYNC_WRITE,  DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA };
 
 static const char * s_instruction_names[] = {
 	"REPLY", "PING", "READ", "WRITE", "REG_WRITE", 
-	"ACTION", "RESET", "REPLY", "SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
+	"ACTION", "RESET", "REPLY", "SYNC_READ", "SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
 
 
 // AX Servos
@@ -393,10 +393,47 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		AddResultString( "RESET ID(", id_str , ") LEN(", Packet_length_string, ")" );
 		frame_handled = true;
 	}
+	else if (packet_type == DynamixelAnalyzer::SYNC_READ) {
+		AddResultString("SR");
+		AddResultString("SYNC_READ");
+		// if ID == 0xfe no need to say it... 
+		ss << " REG:" << reg_start_str;
+		AddResultString("SR", ss.str().c_str());
+
+		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
+		{
+			ss << "(" << pregister_name
+				<< ") LEN: " << reg_count_str;
+			AddResultString("SR", ss.str().c_str());
+			AddResultString("SYNC_READ", ss.str().c_str());
+		}		
+		// Packet length includes: <cmd><Reg_l><Reg_H>{DATA]<CRC_L><CRC_H>  so for write 1 byte 6 bytes we have 5 overhead.
+		U8 count_data_bytes = Packet_length - 7;
+		U8 index_data_byte = 4;
+		ss << " IDs: ";
+		U8 loop_count = 0;
+		char w_str[20];
+		U8 last_data_index = index_data_byte + count_data_bytes;
+		if (last_data_index > 12) last_data_index = 12;
+		while (index_data_byte < last_data_index)
+		{
+			if (loop_count == 2)
+				AddResultString("SR", ss.str().c_str());
+			if (loop_count) {
+				ss << ", ";
+			}
+			loop_count++;
+			AnalyzerHelpers::GetNumberString(Data[index_data_byte], display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+			ss << w_str;
+			index_data_byte++;
+		}
+		AddResultString("SR", ss.str().c_str());
+		AddResultString("SYNC_READ", ss.str().c_str());
+
+		frame_handled = true;
+	}
 	else if (( packet_type == DynamixelAnalyzer::SYNC_WRITE ) && (data_count >= 2))
 	{
-//		char cmd_header_str[50];
-
 		AddResultString("SW");
 		AddResultString("SYNC_WRITE");
 		// if ID == 0xfe no need to say it... 
@@ -547,8 +584,7 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 				}
 				ss << w_str;
 				AddResultString(ss.str().c_str());  // Add up to this point...  
-
-				reg_start += data_size;
+				if (reg_start != 0xff) reg_start += data_size;
 				index_data_byte += data_size;
 			}
 		}
@@ -753,7 +789,24 @@ void DynamixelAnalyzerResults::GenerateExportFile( const char* file, DisplayBase
 				}
 			}
 			frame_handled = true;
+		} 	else if (packet_type == DynamixelAnalyzer::SYNC_READ) {
+			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
+			// Packet length includes: <cmd><Reg_l><Reg_H>{DATA]<CRC_L><CRC_H>  so for write 1 byte 6 bytes we have 5 overhead.
+			U8 count_data_bytes = Packet_length - 7;
+			U8 index_data_byte = 4;
+			char w_str[20];
+			U8 last_data_index = index_data_byte + count_data_bytes;
+			if (last_data_index > 12) last_data_index = 12;
+			while (index_data_byte < last_data_index)
+			{
+				file_stream << ", ";
+				AnalyzerHelpers::GetNumberString(Data[index_data_byte], display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+				file_stream << w_str;
+				index_data_byte++;
+			}
+			frame_handled = true;
 		}
+
 		else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (Packet_length >= 4))
 		{
 			file_stream << "," << status_str << "," << reg_start_str << "," << reg_start_name_str_ptr << "," << reg_count_str;
@@ -1057,8 +1110,33 @@ void DynamixelAnalyzerResults::GenerateFrameTabularText( U64 frame_index, Displa
 	{
 		ss << "RS " << id_str;
 		frame_handled = true;
-	}
-	else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (data_count >= 2))
+	} else if (packet_type == DynamixelAnalyzer::SYNC_READ) {
+		ss << "SR " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
+		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
+		{
+			ss << " - " << pregister_name;
+		}
+
+		// Packet length includes: <cmd><Reg_l><Reg_H>{DATA]<CRC_L><CRC_H>  so for write 1 byte 6 bytes we have 5 overhead.
+		U8 count_data_bytes = Packet_length - 7;
+		U8 index_data_byte = 4;
+		ss << " IDs: ";
+		U8 loop_count = 0;
+		char w_str[20];
+		U8 last_data_index = index_data_byte + count_data_bytes;
+		if (last_data_index > 12) last_data_index = 12;
+		while (index_data_byte < last_data_index)
+		{
+			if (loop_count) {
+				ss << ", ";
+			}
+			loop_count++;
+			AnalyzerHelpers::GetNumberString(Data[index_data_byte], display_base, 16, w_str, sizeof(w_str));	// reuse string; 
+			ss << w_str;
+			index_data_byte++;
+		}
+		frame_handled = true;
+	} else if ((packet_type == DynamixelAnalyzer::SYNC_WRITE) && (data_count >= 2))
 	{
 		ss <<"SW " << id_str << ": R:" << reg_start_str << " L:" << reg_count;
 		if ((pregister_name = GetServoRegisterName(servo_id, reg_start, protocol_2)))
