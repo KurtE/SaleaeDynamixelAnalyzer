@@ -11,7 +11,24 @@ This analyzer was built with the current versions of the SDK (1.1.32) for the cu
 
 # Warning
 
-This is a WIP and there are no guarantees of any kind.  Use at your own risk.
+This is a WIP and there are no guarantees of any kind.  Use at your own risk. 
+
+# Limitations
+
+The currently released version only supports Protocol 1 packets.  Up till now I have only owned
+AX-12 servos with maybe one or two AX-18 servos.  
+
+I am currently experimenting with the new XL430-W250 servos, so I started adding Protocol 2 support.  
+In this branch I added this Servo type to the types of servos.  
+
+In addition the code now looks for the Protocol 2 packet formats as well as the Protocol 1 packets 
+and hopefully properly extracts the appropriate parameters.  
+
+In addition I have added some support for the SYNC_READ packet which is only available in Protocol 2.  
+I have not yet added BULK_READ nor BULK_WRITE.  
+
+Note: there are many places in the code that assumes that starting register and count of registers 
+are limited to one byte values (i.e. 0-255).  Over time I will try to remove some of these limitations
 
 # Exporting
 
