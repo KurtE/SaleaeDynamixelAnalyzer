@@ -29,6 +29,8 @@ public:
 	  REG_WRITE,
 	  ACTION,
 	  RESET,
+	  REBOOT=0x08,
+	  CLEAR=0x10,					// Protocol 2 only
 	  STATUS=0x55,					// Protocol 2 status message
 	  SYNC_READ=0x82,				// Protocol 2 only
 	  SYNC_WRITE=0x83,

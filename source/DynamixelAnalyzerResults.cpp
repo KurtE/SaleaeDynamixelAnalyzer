@@ -10,11 +10,13 @@
 // Define Global/Static data
 //=============================================================================
 static const U8 s_instructions[] = { DynamixelAnalyzer::NONE, DynamixelAnalyzer::APING, DynamixelAnalyzer::READ, DynamixelAnalyzer::WRITE, DynamixelAnalyzer::REG_WRITE, 
-	DynamixelAnalyzer::ACTION, DynamixelAnalyzer::RESET, DynamixelAnalyzer::STATUS , DynamixelAnalyzer::SYNC_READ, DynamixelAnalyzer::SYNC_WRITE,  DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA };
+	DynamixelAnalyzer::ACTION, DynamixelAnalyzer::RESET, DynamixelAnalyzer::REBOOT, DynamixelAnalyzer::CLEAR, 
+	DynamixelAnalyzer::STATUS , DynamixelAnalyzer::SYNC_READ, DynamixelAnalyzer::SYNC_WRITE,  DynamixelAnalyzer::SYNC_WRITE_SERVO_DATA };
 
 static const char * s_instruction_names[] = {
 	"REPLY", "PING", "READ", "WRITE", "REG_WRITE", 
-	"ACTION", "RESET", "REPLY", "SYNC_READ", "SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
+	"ACTION", "RESET", "REBOOT", "CLEAR",
+	"REPLY", "SYNC_READ", "SYNC_WRITE", "SW_DATA", "REPLY_STAT" };
 
 
 // AX Servos
@@ -391,6 +393,20 @@ void DynamixelAnalyzerResults::GenerateBubbleText(U64 frame_index, Channel& chan
 		AddResultString( "RESET" );
 		AddResultString( "RESET ID(", id_str , ")" );
 		AddResultString( "RESET ID(", id_str , ") LEN(", Packet_length_string, ")" );
+		frame_handled = true;
+	}
+	else if ((packet_type == DynamixelAnalyzer::REBOOT) && (data_count == 0))
+	{
+		AddResultString("RB");
+		AddResultString("REBOOT");
+		AddResultString("REBOOT(", id_str, ")");
+		frame_handled = true;
+	}
+	else if ((packet_type == DynamixelAnalyzer::CLEAR) && (data_count == 0))
+	{
+		AddResultString("CL");
+		AddResultString("CLEAR");
+		AddResultString("CLEAR ID(", id_str, ")");
 		frame_handled = true;
 	}
 	else if (packet_type == DynamixelAnalyzer::SYNC_READ) {
